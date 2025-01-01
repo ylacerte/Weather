@@ -1,0 +1,294 @@
+---
+title: "Local weather"
+author: "Yves"
+date: "18 August 2024"
+output:   
+  flexdashboard::flex_dashboard:
+    orientation: columns
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+
+library(plotly)
+library("RColorBrewer")
+library(lubridate)
+library(kableExtra)
+library(httr2)
+library(readr)
+library(stringr)
+library(tidyverse)
+library(sf)
+library(leaflet)
+
+RV <- reactiveValues()
+
+source("C:\\Users\\ylace\\OneDrive\\Desktop\\STUFF\\Weather\\GET_historical_weather.R")
+source("C:\\Users\\ylace\\OneDrive\\Desktop\\STUFF\\Weather\\GET_forecast_weather.R")
+#source("C:\\Users\\ylace\\OneDrive\\Desktop\\STUFF\\Weather\\GET_world_weather.R")
+
+init <- function() {
+  lat <- 39.48083560687681
+  lon <- -105.06391035422446
+  address <- "8204 Mount Kataka St, Littleton, CO 80125"
+  date <- Sys.Date()
+  df <- data.frame(address, lat, lon, date)
+  return(df)
+}
+location <- init()
+RV$init <- location
+
+point <- c(location$lat, location$lon)
+RV$url <- GET_forecast_url(point)
+
+```
+
+<b></b> {data-icon="ion-stats-bars"}
+=====================================  
+
+Column {data-width=100}
+-------------------------------------
+### <b></b>
+
+```{r, echo=FALSE}
+  actionButton("reset1", "Map")
+```
+
+```{r, echo=FALSE}
+observeEvent(input$reset1,{
+    proxy <- leafletProxy("EC")
+    proxy %>% addTiles() %>% 
+     addProviderTiles("CartoDB.Positron") %>% 
+     setView(lng=location$lon, lat=location$lat, zoom = 10) %>% 
+     addPolygons(data=DC.CO, color = "green", 
+                 label="Douglas County, CO", fillOpacity=.1) %>%
+     addCircles(lng=location$lon, lat=location$lat, 
+                radius=520, color='red', 
+                label=location$address) %>%
+     addCircles(lng=KASSLER$longitude, lat=KASSLER$latitude, 
+                color='black', radius=520,
+                label=paste(KASSLER$station, KASSLER$name)) %>%
+     addCircles(lng=stations$longitude, lat=stations$latitude, 
+                label=paste(stations$station, stations$name))
+})
+```
+
+Column {}
+-------------------------------------
+
+### <b>Weather stations in and around Douglas County, CO</b>
+```{r, echo=FALSE}
+output$EC <- renderLeaflet({
+   leaflet() %>% 
+     addProviderTiles("CartoDB.Positron") %>% 
+     addPolygons(data=DC.CO, color = "green", 
+                 label=DC.CO$STATEFP, fillOpacity=.1) %>%
+     addCircles(lng=location$lon, lat=location$lat, 
+                radius=1520, color='red', 
+                label=location$address) %>%
+     addMarkers(lng=KASSLER$longitude, lat=KASSLER$latitude, 
+                label=paste(KASSLER$station, KASSLER$name)) %>%
+     addCircles(lng=stations$longitude, lat=stations$latitude, 
+                label=paste(stations$station, stations$name)) %>%
+     fitBounds(lng1=(FB[1]), lat1=(FB[4]), 
+               lng2=(FB[3]), lat2=(FB[2])) 
+})
+leafletOutput('EC')
+```
+
+Column {}
+-------------------------------------
+###
+```{r, echo=FALSE}
+stations %>% kbl() %>% kable_styling()
+```
+
+
+<b>Historical</b> {data-icon="ion-stats-bars"}
+=====================================  
+
+Column {data-width=200}
+-------------------------------------
+### <b>station 054452 KASSLER</b>
+
+```{r, echo=FALSE}
+  elements %>% kbl() %>% kable_styling()
+```
+
+Row {}
+-------------------------------------
+### <b>Temperature</b>
+
+```{r, echo=FALSE}
+  fig <- plot_ly( type = 'scatter', mode = 'lines', showlegend=FALSE ) 
+  fig <- fig %>% add_trace(data=historicalWeather, x=~date, y = ~mint, name="min") 
+  fig <- fig %>% add_trace(data=historicalWeather, x=~date, y = ~maxt, name="max") 
+  fig <- fig %>% layout(yaxis=list(title="Temperature"))
+  fig
+```
+
+Column {data-width=300}
+-------------------------------------
+### <b>Precipitation</b>
+
+```{r, echo=FALSE}
+  fig <- plot_ly( type = 'scatter', mode = 'lines', showlegend=FALSE ) 
+  fig <- fig %>% add_trace(data=historicalWeather, x=~date, y = ~pcpn, name="pcpn") 
+  fig <- fig %>% layout(yaxis=list(title="Precipitation"))
+  fig
+```
+
+### <b>Snowfall</b>
+
+```{r, echo=FALSE}
+  fig <- plot_ly( type = 'scatter', mode = 'lines', showlegend=FALSE ) 
+  fig <- fig %>% add_trace(data=historicalWeather, x=~date, y = ~snow, name="snow") 
+  fig <- fig %>% layout(yaxis=list(title="Snowfall"))
+  fig
+```
+
+### <b>Snow Depth</b>
+
+```{r, echo=FALSE}
+  fig <- plot_ly( type = 'scatter', mode = 'lines', showlegend=FALSE ) 
+  fig <- fig %>% add_trace(data=historicalWeather, x=~date, y = ~sndw, name="sndw") 
+  fig <- fig %>% layout(yaxis=list(title="Snow Depth"))
+  fig
+```
+
+### 
+<b>
+NOAA Online Weather Data (NOWData) 
+
+API ... Applied Climate Information System (ACIS)
+https://www.rcc-acis.org/docs_webservices.html
+</b>
+
+
+
+
+
+<b>Forecast</b> {data-icon="ion-stats-bars"}
+=====================================  
+
+Column {data-width=150}
+-------------------------------------
+### <b>Forecast for location</b>
+```{r, echo=FALSE}
+renderUI({
+  HTML(t(RV$init) %>% kbl() %>% kable_styling)
+})
+```
+
+### <b></b>
+```{r, echo=FALSE}
+  sliderInput("fc", HTML("<b>when</b>"), min=0, max=14, value=0, step=1)
+  actionButton("reset2", "Map")
+```
+
+```{r, echo=FALSE}
+observeEvent(input$reset2, {
+    proxy <- leafletProxy("BC")
+    proxy %>% clearShapes() %>%
+     addProviderTiles("CartoDB.Positron") %>% 
+     setView(lng=RV$init$lon, lat=RV$init$lat, zoom = 9) %>% 
+     addCircles(lng=RV$init$lon, lat=RV$init$lat, 
+                radius=500, color='red', 
+                label=RV$init$address)
+})
+```
+
+```{r, echo=FALSE}
+  observeEvent(input$BC_click, {
+  
+    RV$init$address <- "map input"
+    RV$init$lat <- input$BC_click$lat
+    RV$init$lon <- input$BC_click$lng
+    
+    proxy <- leafletProxy("BC")
+    proxy %>% clearShapes() %>% addTiles() %>% 
+      setView(lng=RV$init$lon, lat=RV$init$lat, zoom = 9) %>% 
+      addCircles(lng=RV$init$lon, lat=RV$init$lat, weight=2, color='red',
+                 radius = 500, opacity = 2,
+                 highlightOptions = highlightOptions(color = "green", weight = 15),
+                 popup=RV$init$address, label=RV$init$address) 
+})
+```
+
+Column{data-width=350}
+-------------------------------------
+### <b>Daily forecast from https://api.weather.gov/points/</b>
+```{r, echo=FALSE}
+renderUI({
+    point <- c(RV$init$lat, RV$init$lon)
+    RV$url <- GET_forecast_url(point)
+    RV$forecastWeather <- GET_forecast_weather(url=RV$url[1,2])
+    if ( input$fc > 0 ) {
+      HTML(RV$forecastWeather[,c(1,input$fc+1)] %>% 
+      kbl(row.names = FALSE) %>% 
+      kable_styling)
+    }
+})
+```
+
+Column{}
+-------------------------------------
+###
+```{r, echo=FALSE}
+output$BC <- renderLeaflet({
+
+   leaflet() %>% 
+     addProviderTiles("CartoDB.Positron") %>% 
+     setView(lng=RV$init$lon, lat=RV$init$lat, zoom = 12) %>% 
+     addCircles(lng=RV$init$lon, lat=RV$init$lat, 
+                radius=520, color='red', 
+                label=RV$init$address)
+})
+leafletOutput('BC')
+```
+
+### <b>Hourly forecast from https://api.weather.gov/points/</b>
+```{r, echo=FALSE}
+renderPlotly({
+    
+  hourlyForecastWeather <- GET_hourly_forecast_weather(url=RV$url[2,2])
+  df <- data.frame(t(hourlyForecastWeather[1,]), 
+                   t(hourlyForecastWeather[2,]))
+  colnames(df) <- c("time", "temperature")
+
+  if ( input$fc == 0 ) {
+    plot_ly(type='scatter', mode='lines', showlegend=FALSE) %>%
+      add_trace(data=df, x=~time, y=~temperature, name="forecast",
+                line = list(shape = 'spline', smoothing = 5.3))
+  } else {
+    date1 <- RV$forecastWeather[2,input$fc+1]
+    date2 <- RV$forecastWeather[2,input$fc+2]
+    w <- df[which(df$time >= date1 & df$time <=date2),]
+
+    plot_ly(type='scatter', mode='lines', showlegend=FALSE) %>%
+#      add_trace(data=df, x=~time, y=~temperature, name="forecast",
+#                line = list(shape = 'spline', smoothing = 5.3)) %>%
+      add_trace(data=w, x=~time, y=~temperature, name="window",
+                line = list(shape = 'spline', smoothing = 5.3)) %>%
+      add_text(data=w, x=~time, y=~temperature, 
+               text=~temperature, textposition = "top")
+
+  }
+})
+```
+
+
+<b>forecastGridData</b> {data-icon="ion-stats-bars"}
+=====================================  
+forecastGridData            https://api.weather.gov/gridpoints/BOU/60,50
+
+Data for a single grid around the selected point
+
+
+<b>observationStations</b> {data-icon="ion-stats-bars"}
+=====================================  
+observationStations        https://api.weather.gov/gridpoints/BOU/60,50/stations
+
+A list of weather stations around the selected point.
+
+PLOT 

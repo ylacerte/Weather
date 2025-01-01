@@ -1,0 +1,192 @@
+---
+title: "Weather forecast"
+author: "Yves"
+date: "18 August 2024"
+output:   
+  flexdashboard::flex_dashboard:
+    orientation: rows
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(leaflet)
+library(httr2)
+library(kableExtra)
+
+source("C:\\Users\\ylace\\OneDrive\\Desktop\\STUFF\\Weather\\GET_world_weather.R")
+
+RV <- reactiveValues()
+RV$pt <- NULL
+
+
+# initial city
+  city <- data.frame(name="Roxborough Park", state="Colorado", country="United States")
+
+```
+
+
+<b></b> {data-icon="ion-stats-bars"}
+=====================================  
+
+Row {data-height=200}
+-------------------------------------
+### <b>Enter a city, state, country to get local forecast</b> ... https://geocoding-api.open-meteo.com/v1/search
+
+```{r, echo=FALSE}
+
+tags$div(textInput("city", HTML("<b>city</b>"), value=city$name), 
+         style="width: 25%; display:inline-block")
+tags$div(textInput("prov", HTML("<b>state/prov</b>"), value=city$state), 
+         style="width: 25%; display:inline-block")
+tags$div(textInput("country", HTML("<b>country</b>"), value=city$country), 
+         style="width: 25%; display:inline-block")
+tags$div(actionButton("go", HTML("<b>.</b>")), 
+         style="width: 20%; display:inline-block")
+
+```
+
+###
+
+```{r, echo=FALSE}
+renderUI({
+  if ( (input$go > 0) & (! is.null(RV$L)) ) {
+    if ( nrow(RV$L) == 1 ) {
+      HTML("city found")
+    } else if ( nrow(RV$L) >  1 ) {
+      HTML("More than one city found ... see next page for details")
+    } else { 
+      HTML("No cities found") }
+  } else {
+    HTML("Push the black button ")
+  }
+})
+```
+
+```{r, echo=FALSE}
+  observeEvent(input$go, {
+    where <- data.frame(name=input$city, state=input$prov, country=input$country)
+    RV$L <- geocode_city(city=where)
+})
+```
+
+###
+```{r, echo=FALSE}
+  sliderInput("fc", HTML("<b>when</b>"), min=0, max=7, value=0, step=1)
+```
+
+Row {}
+-------------------------------------
+
+### <b></b>
+```{r, echo=FALSE}
+renderLeaflet({
+  if ( input$go > 0 ) {
+    if ( (! is.null(RV$L)) & (nrow(RV$L) == 1) ) {
+      lat <- RV$L$lat
+      lng <- RV$L$lng
+      leaflet() %>% addTiles() %>% 
+         addCircleMarkers(lat=lat, lng=lng, radius=16) 
+    } 
+  } 
+})
+```
+
+### <b>Daily forecast</b>
+```{r, echo=FALSE}
+renderUI({
+  if ( input$go > 0 ) {
+    if ( (! is.null(RV$L)) & (nrow(RV$L) == 1) ) {
+      pt <- c(lat=RV$L$lat, lng=RV$L$lng)
+      forecast <- get_forecast(pt)
+      d <- forecast$daily
+      if ( input$fc == 0 ) {HTML(d %>% kbl %>% kable_styling())
+      } else {HTML(d[input$fc,] %>% kbl %>% kable_styling())}
+    }
+  }
+}) 
+```
+
+Row {}
+-------------------------------------
+
+###
+```{r, echo=FALSE}
+renderPlotly({
+  if ( input$go > 0 ) {
+    if ( (! is.null(RV$L)) & (nrow(RV$L) == 1) ) {
+      pt <- c(lat=RV$L$lat, lng=RV$L$lng)
+      forecast <- get_forecast(pt)
+      d <- forecast$daily
+      h <- forecast$hourly
+      m <- forecast$minutely
+
+      if ( input$fc == 0 ) {
+        plot_ly(type='scatter', mode='lines', showlegend=TRUE) %>% 
+          add_trace(data=h, x=~date, y=~temp, name="hourly") %>% 
+          add_trace(data=m, x=~date, y=~temp, name="15 min") %>% 
+          add_trace(data=h, x=~date, y=~humi, name="humidity", yaxis = "y2") %>% 
+          layout(yaxis=list(title="temperature (C)"),
+                 yaxis2 = list(overlaying = "y", side = "right"))
+      } else {
+          date1 <- d$date[input$fc]
+          date2 <- d$date[input$fc+1]
+          print(paste(input$fc, date1, date2))
+          
+          w.h <- h[which(h$date >= date1 & h$date <=date2),]
+          w.m <- m[which(m$date >= date1 & m$date <=date2),]
+#          print(head(w.h))
+          
+        plot_ly(type='scatter', mode='lines', showlegend=TRUE) %>% 
+          add_trace(data=w.h, x=~date, y=~temp, name="hourly") %>% 
+          add_trace(data=w.m, x=~date, y=~temp, name="15 min") %>% 
+          add_trace(data=w.h, x=~date, y=~humi, name="humidity", yaxis = "y2") %>% 
+          layout(yaxis=list(title="temperature (C)"),
+                 yaxis2 = list(overlaying = "y", side = "right"))
+      }
+    }
+  }
+})
+```
+
+<b></b> {data-icon="ion-stats-bars"}
+=====================================  
+
+Row {}
+-------------------------------------
+### <b>https://historical-forecast-api.open-meteo.com/v1/forecast ... cubic spline regression </b>
+```{r, echo=FALSE}
+renderPlotly({
+  if ( input$go > 0 ) {
+    if ( ! is.null(RV$L) & nrow(RV$L) == 1 ) {
+      pt <- c(lat=RV$L$lat, lng=RV$L$lng)
+      out <- get_historical_data(pt)
+      out$x <- 1:nrow(out)
+
+    # quadratic regression
+      min.model <- lm(min ~ x + I(x^2), data=out)
+      max.model <- lm(max ~ x + I(x^2), data=out)
+
+    # spline regression
+      knots <- c(190)
+      min.spl <- lm(min ~ bs(x,knots = knots), data = out )
+      max.spl <- lm(max ~ bs(x,knots = knots), data = out )
+
+      plot_ly(type='scatter', mode='lines', showlegend=TRUE) %>% 
+        add_trace(data=out, x=~date, y=~min, name="min") %>% 
+        add_trace(data=out, x=~date, y=~max, name="max") %>% 
+        add_trace(x=out$date, y=~min.spl$fitted.values, name="min-spl") %>%
+        add_trace(x=out$date, y=~max.spl$fitted.values, name="max-spl") %>%
+        layout(yaxis=list(title="temperature (C)"))
+    }
+  }
+})
+```
+
+Row {}
+-------------------------------------
+### <b>geocoding selection</b>
+```{r, echo=FALSE}
+renderUI( {
+  HTML(RV$L %>% kbl() %>% kable_styling())
+} )
+```
