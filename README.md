@@ -1,3 +1,3 @@
-# R-projects
+# Projects
 
 Various R projects
