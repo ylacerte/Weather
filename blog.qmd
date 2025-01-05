@@ -1,0 +1,286 @@
+---
+title: "Weather"
+author: "Yves"
+format: html
+editor: visual
+
+execute: 
+  warning: false
+  message: false
+---
+
+## Introduction
+
+I look at a couple of web sites regularly to get my weather, e.g. The Weather Channel, and AccuWeather. Most if not all private sector weather companies get their data from governments. In the US, the National Oceanic and Atmospheric Administration (NOAA), a bureau within the Department of Commerce is charged with understanding and predicting changes in Earth's environment.
+
+NOAA maintains historical weather data and generates weather forecasts. NOAA provides these services to:
+
+-   Help people make informed decisions about the environment.
+
+-   Protect lives and property by providing warnings, and analyses.
+
+-   Enhance the nation's economy through weather research and continuously enhanced service offerings.
+
+Short to medium-term weather forecasts are based on Numerical Weather Prediction (NWP) computer models. Some examples of such models include:
+
+-   ICON weather models from the German Weather service DWD
+
+-   NOAA Global Forecast System (GFS) weather model with High-Resolution Rapid Refresh (HRRR) weather model
+
+-   Météo-France's AROME and ARPEGE weather models
+
+-   European Centre for Medium-Range Weather Forecasts (ECMWF)
+
+## What we will do
+
+Let us extract weather data for Littleton, Colorado, from two sources:
+
+-   Historical data from the Applied Climate Information (ACIS) System, a system developed and maintained by the NOAA Regional Climate Centers (RCC). <https://www.rcc-acis.org/>
+
+-   Forecast data from the National Weather Service (NWS) at <https://www.weather.gov/>
+
+We will also generate a simple statistical forecast purely based on historical data. We will compare the two forecasts.
+
+## **Historical Data**
+
+RCC-ACIS provides an API to get historical data. The end point looks like this
+
+```{r}
+#| echo: false
+library(plotly)
+library("RColorBrewer")
+library(lubridate)
+library(kableExtra)
+library(httr2)
+library(readr)
+library(stringr)
+library(tidyverse)
+library(splines)
+
+init <- function() {
+  lat <- 39.48083560687681
+  lon <- -105.06391035422446
+  address <- "8204 Mount Kataka St, Littleton, CO 80125"
+  date <- Sys.Date()
+  df <- data.frame(address, lat, lon, date)
+  return(df)
+}
+location <- init()
+
+url <- "https://data.rcc-acis.org/StnData"
+q <- paste0(
+  url,
+  "?sid=", "054452",    # id of Kasler weather reporting station nearby
+  "&sdate=", "2000-01-01",
+  "&edate=", Sys.Date() ,
+  "&elems=", "1,2,4,10,11",
+  "&output=", "csv"
+)
+
+q
+
+```
+
+A plot of the historical daily minimum and maximum temperature (since 2000-01-01)
+
+```{r}
+#| echo: false
+req <- request(q)
+resp <- req_perform(req)
+#resp_content_type(resp)    # csv
+#resp_encoding(resp)        # UTF-8
+contents <- resp |> resp_body_string() |> read_csv()
+data <- data.frame()
+for ( i in 1:nrow(contents) ) {
+  temp <- str_split_fixed(contents[i,1], ",", 6)
+  data <- rbind(data, temp)
+}
+colnames(data) <- c("date", "maxt", "mint", "pcpn", "snow", "sndw")
+data$date <- as.POSIXct(data$date)
+data$maxt <- as.numeric(data$maxt)
+data$mint <- as.numeric(data$mint)
+data$pcpn <- as.numeric(data$pcpn)
+data$snow <- as.numeric(data$snow)
+data$sndw <- as.numeric(data$sndw)
+
+data$year <- year(data$date)
+data$month <- month(data$date)
+data$day <- day(data$date)
+data$yday <- yday(data$date)
+data$stack <- as.Date(paste0("0","-", data$month,"-", data$day))
+
+historicalWeather <- data
+y <- unique(historicalWeather$year)   
+
+```
+
+```{r}
+#| echo: false
+plot_ly( type = 'scatter', mode = 'lines', showlegend=FALSE )        %>% 
+  add_trace(data=historicalWeather, x=~date, y = ~mint, name="min",
+            line=list(width=.5)) %>%
+  add_trace(data=historicalWeather, x=~date, y = ~maxt, name="max",
+            line=list(width=.5)) %>% 
+  layout(yaxis=list(title="Temperature"))
+
+```
+
+Stack a couple of years on a plot. It might be easier to see the bigger picture.
+
+```{r}
+#| echo: false
+p <- plot_ly( type = 'scatter', mode = 'lines', showlegend=TRUE )
+
+year2024 <- historicalWeather[which(historicalWeather$year == 2024),] 
+  p <- p %>% add_trace(data=year2024, x=~stack, y = ~mint, name="min2024") 
+  p <- p %>% add_trace(data=year2024, x=~stack, y = ~maxt, name="max2024")
+  
+year2001 <- historicalWeather[which(historicalWeather$year == 2001),] 
+  p <- p %>% add_trace(data=year2001, x=~stack, y = ~mint, name="min2001") 
+  p <- p %>% add_trace(data=year2001, x=~stack, y = ~maxt, name="max2001")
+p <- p %>% layout(yaxis=list(title="Temperature")) 
+
+p
+
+```
+
+Maybe a polar plot will help. Let us plot min and max for 2024.
+
+```{r}
+#| echo: false
+clock <- data.frame(r=100, c=seq(0,360,15))
+p <- plot_ly(showlegend=F) %>%
+  layout(polar = list(
+    angularaxis = list(rotation = 90, direction = 'clockwise',
+                       tickvals = seq(0,360,30),
+                       ticktext = seq(0,12,1)),
+    radialaxis = list(range = c(0, 100) )
+  )) 
+  
+p <- p %>%  add_trace(data=clock, r=~r, theta=~c,
+            type='scatterpolar', mode='markers',
+            marker=list(size=5))
+   
+yearly <- historicalWeather[which(year(historicalWeather$date) == 2024),]
+  p <- p %>% add_trace(data=yearly, r=~maxt, theta=~yday,
+             type='scatterpolar', mode='lines')
+  p <- p %>% add_trace(data=yearly, r=~mint, theta=~yday,
+             type='scatterpolar', mode='lines')
+p
+
+```
+
+## Forecast
+
+Let's get hourly temperature forecast for the next few days for this location using <https://api.weather.gov/points/>. The end point looks like this:
+
+```{r}
+#| echo: false
+source("C://Users//ylace//OneDrive//Desktop//STUFF//Weather//GET_forecast_weather.R")
+  point <- c(location$lat, location$lon)
+  url.list <- GET_forecast_url(point)
+  url.list[2,2]
+  
+  forecastWeather <- GET_forecast_weather(url=url.list[1,2])
+  hourlyForecastWeather <- GET_hourly_forecast_weather(url=url.list[2,2])
+  df <- data.frame(t(hourlyForecastWeather[1,]), 
+                   t(hourlyForecastWeather[2,]))
+  colnames(df) <- c("time", "temperature") ; rownames(df) <- NULL
+  df <- df[-1,]
+  df$time <- as.POSIXct(df$time)
+  df$temperature <- as.numeric(df$temperature)
+  df$day <- day(df$time)
+
+  plot_ly(type='scatter', mode='lines', showlegend=FALSE) %>%
+    add_trace(data=df, x=~time, y=~temperature, name="forecast",
+              line = list(shape = 'spline', smoothing = 5.3))
+
+```
+
+```{r}
+#| echo: false
+forecast.days <- unique(df$day)
+daily.minmax <- data.frame()
+for ( i in 1:length(forecast.days) ) {
+  d <- forecast.days[i]
+  min <- min(df$temperature[which(df$day == d)])
+  max <- max(df$temperature[which(df$day == d)])
+  t <- data.frame(day=d, min=min, max=max)
+  daily.minmax <- rbind(daily.minmax,t)
+}
+  
+```
+
+let's see if we can forecast the minimum and maximum temperature for the next few days. We build a probability (or frequency) plot for each forecast day, purely based on historical data. We will base our forecast on 50% probability, i.e half the time, our historical data shows the temperature is above the threshold, and 50% below the threshold.
+
+The dots on the plot are the forecast minimum and maximum temperature returned from our API call to NWS. We show the results for only one day to make the plot easier to read.
+
+```{r}
+#| echo: false
+  start <- Sys.Date()
+  end <- start+days(6)
+
+  month <- month(start) 
+  days <- c(day(start):day(end))
+  what <- historicalWeather[which(historicalWeather$month == month &
+                                  historicalWeather$day>=day(start)  &
+                                  historicalWeather$day<=day(end)) ,]
+
+p <- plot_ly(showlegend=FALSE, type='scatter', mode='markers')
+for ( i in 1:length(days) ) {
+  d <- what[which(what$day == days[i]),]
+  p <- p %>% add_trace(data=d, x=~day, y = ~mint, 
+                       name=paste("min", days[i])) 
+  p <- p %>% add_trace(data=d, x=~day, y = ~maxt, 
+                       name=paste("max", days[i])) 
+}
+p <- p %>% layout(yaxis=list(title="temperature"))
+#p
+
+p <- plot_ly(type='scatter', mode='lines', showlegend=FALSE)
+
+i=4
+#for ( i in 1:length(days) ) {
+  d <- what[which(what$day == days[i]),]
+
+  f.max <- data.frame(table(d$maxt))
+  f.max$cs <- cumsum(f.max$Freq)
+  f.max$p <- f.max$cs/nrow(d)
+  
+  f.min <- data.frame(table(d$mint))
+  f.min$cs <- cumsum(f.min$Freq)
+  f.min$p <- f.min$cs/nrow(d)
+  
+  p <- p %>% add_trace(data=f.min, x=~Var1, y = ~p, 
+                       name=paste("min", days[i]), legendgroup=days[i]) 
+  p <- p %>% add_trace(data=f.max, x=~Var1, y = ~p, 
+                       name=paste("max", days[i]), legendgroup=days[i]) 
+  
+  p <- p %>% add_markers(x=daily.minmax$min[i], y = 0.5, 
+                         name=paste("min", days[i]), legendgroup=days[i],
+                         marker=list(size=15, color='red'))
+  p <- p %>% add_markers(x=daily.minmax$max[i], y = 0.5, 
+                         name=paste("max", days[i]), legendgroup=days[i],
+                         marker=list(size=15, color='blue'))
+#}
+p <- p %>% add_segments(x = 0, xend = 60, y = 0.5, yend = 0.5)
+p <- p %>% layout(title=paste0("Forecast for ", d$date[nrow(d)]+years(1) ),
+                  xaxis=list(title="temperature"),
+                  yaxis=list(title="probability"))
+p
+
+```
+
+## Thoughts
+
+As demonstrated above, statistical weather forecasting does not take into account current weather events that influence forecasts, such as a cold front moving in. Statistical weather forecasting is better suited for long-range forecasts. In other words, the above shows historical range of temperature for each day of the year, which is what you are looking for in a long-range forecast.
+
+Numerical Weather Prediction (NWP), such as the forecast returned by the API call to NWS, utilizes complex mathematical models to simulate atmospheric changes based on current weather data, providing more detailed short- to medium-range forecasts.
+
+Weather data is free and readily accessible. NOAA has always been a good value for the American taxpayer. NOAA forecast improvements have saved lives and property. Weather forecasting and research also enables a thriving private weather sector. Funding for NOAA, whose data and models underpin all U.S. weather forecasts, has not kept up with the soaring costs of extreme weather.
+
+## Finally
+
+This post was written with R Quarto, an open-source scientific and technical publishing system.
+
+The code is available [here](https://github.com/ylacerte/Weather) under the name blog.qmd
