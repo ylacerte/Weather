@@ -9,7 +9,11 @@ Two weather apps:
 
 
 Other places to get weather data in the US:
+
 a. National Centers for Environmental Information https://www.ncei.noaa.gov
+
 b. Goddard Institute for Space Studies https://data.giss.nasa.gov/
+
 c. Climate Data Online (CDO) https://www.ncdc.noaa.gov/cdo-web/
+
 d. Applied Climate Information System (ACIS) https://www.rcc-acis.org/docs_webservices.html
