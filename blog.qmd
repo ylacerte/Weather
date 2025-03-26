@@ -33,7 +33,7 @@ Short to medium-term weather forecasts are based on Numerical Weather Prediction
 
 ## What we will do
 
-Let us extract weather data for Littleton, Colorado, from two sources:
+Let us extract weather data for a specific location, from two sources:
 
 -   Historical data from the Applied Climate Information (ACIS) System, a system developed and maintained by the NOAA Regional Climate Centers (RCC). <https://www.rcc-acis.org/>
 
@@ -211,13 +211,13 @@ for ( i in 1:length(forecast.days) ) {
   
 ```
 
-let's see if we can forecast the minimum and maximum temperature for the next few days. We build a probability (or frequency) plot for each forecast day, purely based on historical data. We will base our forecast on 50% probability, i.e half the time, our historical data shows the temperature is above the threshold, and 50% below the threshold.
+Let's see if we can forecast the minimum and maximum temperature for the next few days. We build a probability (or frequency) plot for each forecast day, purely based on historical data. We will base our forecast on 50% probability, i.e. half the time, our historical data shows the temperature is above the threshold, and 50% below the threshold.
 
 The dots on the plot are the forecast minimum and maximum temperature returned from our API call to NWS. We show the results for only one day to make the plot easier to read.
 
-```{r}
+```{r chunk8}
 #| echo: false
-  start <- Sys.Date()
+  start <- Sys.Date()-days(1)
   end <- start+days(6)
 
   month <- month(start) 
@@ -273,7 +273,7 @@ p
 
 ## Thoughts
 
-As demonstrated above, statistical weather forecasting does not take into account current weather events that influence forecasts, such as a cold front moving in. Statistical weather forecasting is better suited for long-range forecasts. In other words, the above shows historical range of temperature for each day of the year, which is what you are looking for in a long-range forecast.
+As demonstrated above, statistical weather forecasting does not taconsider current weather events that influence forecasts, such as a cold front moving in. Statistical weather forecasting is better suited for long-range forecasts. In other words, the above shows the historical range of temperature for each day of the year, which is what you are looking for in a long-range forecast.
 
 Numerical Weather Prediction (NWP), such as the forecast returned by the API call to NWS, utilizes complex mathematical models to simulate atmospheric changes based on current weather data, providing more detailed short- to medium-range forecasts.
 
